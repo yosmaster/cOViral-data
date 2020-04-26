@@ -17,7 +17,6 @@ Git repository for the data part of the **cOViral**'s projet for EUvsCovid Hacka
 |_ donnees-hospitalieres-covid19.csv
 |_ mapping_region_dep.csv
 |_ model.pkl
-|_ 
 ```
 
 - ```[requirements.txt](requirements.txt)``` Contains the list of all packages that need to be installed to make the code work well. <br/>
