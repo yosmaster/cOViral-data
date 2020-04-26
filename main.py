@@ -1,4 +1,4 @@
-from flask import escape, jsonify
+from flask import escape, jsonify, make_response, Response
 from datetime import datetime
 import train
 import pickle
@@ -6,6 +6,8 @@ import yaml
 import pandas as pd
 import json
 import os
+import urllib.request
+import numpy as np
 
 print("reading yaml")
 config = yaml.safe_load(open("./config.yml", "r"))
@@ -57,7 +59,7 @@ def get_individual_score(request):
         dep = str(request_json['dep']).zfill(2)
         sex = int(request_json['sex'])
         pav = str(request_json['pav'])
-    elif request_args and 'name' in request_args:
+    elif request_args and 'age' in request_args:
         age = str(request_args['age'])
         dep = str(request_args['dep']).zfill(2)
         sex = int(request_args['sex'])
@@ -68,7 +70,32 @@ def get_individual_score(request):
         print("Region for dep {} was not found".format(dep))
         region = "Unknown"
     print({"age": age, "dep": dep, "sex": sex, "pav": pav, "region": region})
-    return jsonify({"score": 80})
+
+
+    try:
+        train.preprocess_data()
+        print("Preprocess data OK")
+    except Exception as e:
+        print(e)
+
+    resp = make_response(jsonify({"score": 80}))
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
+def download_json(request):
+    request_json = request.get_json(silent=True)
+    request_args = request.args
+
+    if request_json and 'name' in request_json:
+        name = str(request_json['name'])
+    elif request_args and 'name' in request_args:
+        name = str(request_args['name'])
+    path = "https://storage.googleapis.com/coviral_bucket/donnees_maille_departement/{}".format(name)
+    j = urllib.request.urlopen(path).read().decode("utf-8")
+    resp = make_response(jsonify(j))
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
 
 
 def update_globals():
@@ -116,4 +143,6 @@ def get_predict(df):
     print("8")
     vectors["risk"] = vectors["diff_norm"].apply(get_score)
     print("9")
-    return jsonify(vectors["risk"].to_dict())
+    resp = make_response(jsonify(vectors["risk"].to_dict()))
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp

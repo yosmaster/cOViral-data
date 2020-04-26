@@ -63,13 +63,19 @@ def shift(s):
     return s - s.shift(1)
 
 
+def read_csv(path):
+    text = urllib.request.urlopen(path).read()
+    df = pd.read_csv(io.StringIO(text.decode("utf-8").replace('"', "")), sep=";")
+    return df
+
+
 def download_data():
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     path = "https://storage.googleapis.com/coviral_bucket/donnees_hospitalieres/donnees-hospitalieres-covid19-{}-19h00.csv".format(
         yesterday)
     try:
-        text = urllib.request.urlopen(path).read()
-        df = pd.read_csv(io.StringIO(text.decode("utf-8").replace('"', "")), sep=";")
+        # text = urllib.request.urlopen(path).read()
+        df = pd.read_csv(path, sep=";")  # io.StringIO(text.decode("utf-8").replace('"', "")), sep=";")
         return df
     except:
         print("No new file found for day {}".format(yesterday))
@@ -98,8 +104,53 @@ def update_model():
     return df
 
 
+def preprocess_data():
+    dfs = []
+    root_path = "https://storage.googleapis.com/coviral_bucket"
+    sources = root_path+"/Enrichissement_donnees_Covid-19_Sante_Publique_France_25_avril_2020/{}"
+    for f in ["source_01.csv", "source_02.csv", "source_03.csv"]:
+        dfs.append(pd.read_csv(sources.format(f)))
+    # df_covid = pd.concat(dfs, axis=1)
 
+    cat_age_file = root_path+"/donnees_hospitalieres/donnees-hospitalieres-classe-age-covid19-2020-04-23-19h00.csv"
+    v_bins = [0, 19, 39, 59, 79, 99]
+    v_names = ['[9-19[', '[19-39[', '[39-59[', '[59-79[', '>79']
 
+    def get_category_ages(cat_file, bins=v_bins, names=v_names):
+        df_age = pd.read_csv(cat_file, sep=";")
+        df_age = df_age.query('cl_age90 != 0')
+        df_age["category"] = pd.cut(df_age.cl_age90, bins=bins, labels=names)
+        df_age = df_age.groupby(['reg', "jour", "category"])['hosp', 'rea', 'rad', 'dc'].agg(sum).reset_index().rename(
+            columns={"hosp": "reg_hosp", "rea": "reg_rea", "rad": "reg_rad", "dc": "reg_dc"})
+        return df_age
 
+    cat_ages = get_category_ages(cat_age_file)
+    # cat_ages.to_csv("data_covid/ages.csv", index=False)
+
+    df_with_ages = pd.merge(dfs[0].query("sexe != 'All'"), cat_ages, left_on=["code_region", "jour"],
+                            right_on=["reg", "jour"], how="inner")
+
+    filelog = root_path+"/INSEE_conditions_menages/data_confinement_logements.csv"
+
+    def get_pv_catego(filelog):
+        logements = pd.read_csv(filelog, sep=";")
+        cols = ["codeReg", "codeDep"] + [col for col in logements.columns if
+                                         ("popMonopAppart" in col) | ("popMen4pAppart" in col)]
+        df = logements.loc[:, cols]
+        df["1P-2P"] = df["popMonopAppart12p"] + df["popMen4pAppart12p"]
+        df["3P-4P"] = df["popMonopAppart34p"] + df["popMen4pAppart34p"]
+        df[">5P"] = df["popMonopAppart5pP"] + df["popMen4pAppart5pP"]
+        df["totPopulation"] = df["popMonopAppart"] + df["popMen4pAppart"]
+        df["1P-2P"] = df["1P-2P"] / df["totPopulation"]
+        df["3P-4P"] = df["3P-4P"] / df["totPopulation"]
+        df[">5P"] = df[">5P"] / df["totPopulation"]
+        df = pd.melt(df.query("codeReg not in ['FRA', 'DOM', 'MET'] "), id_vars=['codeReg', 'codeDep'],
+                     value_vars=['1P-2P', '3P-4P', '>5P'], value_name="pop", var_name="piece")
+        return df
+
+    pv_cat = get_pv_catego(filelog)
+
+    df_with_ages = pd.merge(df_with_ages, pv_cat, left_on=["dpt"], right_on=["codeDep"], how="inner")
+    return df_with_ages
 
 
