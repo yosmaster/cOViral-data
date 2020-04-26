@@ -1,0 +1,4 @@
+window: 5
+day_proj: 1
+var: diff_norm
+model: "model.pkl"
