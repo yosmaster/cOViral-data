@@ -71,9 +71,8 @@ def get_individual_score(request):
         region = "Unknown"
     print({"age": age, "dep": dep, "sex": sex, "pav": pav, "region": region})
 
-
     try:
-        train.preprocess_data()
+        df_with_ages = train.preprocess_data()
         print("Preprocess data OK")
     except Exception as e:
         print(e)

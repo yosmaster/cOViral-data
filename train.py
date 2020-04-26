@@ -6,7 +6,9 @@ import urllib.request
 import yaml
 import pickle
 import io
-
+from tsfresh import extract_features
+from tsfresh import select_features
+from tsfresh.utilities.dataframe_functions import impute
 
 pd.set_option("max_columns", 300)
 pd.set_option("expand_frame_repr", False)
@@ -104,6 +106,66 @@ def update_model():
     return df
 
 
+def get_feature_series(all_data, dateOfRun):
+    date = datetime.strptime(dateOfRun, "%Y-%m-%d")
+    dateOfRun_minus_one = date - timedelta(days=1)
+
+    all_data["jour"] = pd.to_datetime(all_data['jour'], format='%Y-%m-%d')
+    train = all_data[all_data.jour <= dateOfRun_minus_one].query("sexe != 'All'")
+    y_train = all_data[all_data.jour == dateOfRun_minus_one].query("sexe != 'All'")
+    y_train['y'] = y_train["hosp"] / y_train["dpt_pop"]
+
+    y_train["id"] = y_train.apply(lambda r: r["sexe"] + "," + r["dpt"], axis=1)
+    y_train = y_train.drop(["sexe", "dpt"], axis=1)
+    y = y_train.set_index(["id"]).loc[:, "y"]
+
+    timeseries = train.loc[:, ["dpt", "sexe", "jour", "rea", "rea_day", "rad", "rad_day", "dc", "dc_day"]].fillna(0)
+    timeseries["id"] = timeseries.apply(lambda r: r["sexe"] + "," + r["dpt"], axis=1)
+    timeseries = timeseries.drop(["dpt", "sexe"], axis=1)
+
+    extracted_features = extract_features(timeseries, column_id="id", column_sort="jour")
+    impute(extracted_features)
+    features_filtered = select_features(extracted_features, y)
+
+    features_filtered = features_filtered.reset_index()
+    features_filtered["sexe"] = features_filtered["id"].apply(lambda x: x.split(',')[0])
+    features_filtered["dpt"] = features_filtered["id"].apply(lambda x: x.split(',')[1])
+    features_filtered.drop(["id"], axis=1)
+    features_filtered["jour"] = dateOfRun
+    features_filtered["jour"] = pd.to_datetime(features_filtered['jour'], format='%Y-%m-%d')
+
+    all_data = pd.merge(all_data[all_data.jour == dateOfRun].query("sexe != 'All'"), features_filtered,
+                        on=["dpt", "sexe", "jour"])
+
+    return (all_data)
+
+
+def get_category_ages(cat_file, bins=v_bins, names=v_names):
+    df_age = pd.read_csv(cat_file, sep=";")
+    df_age = df_age.query('cl_age90 != 0')
+    df_age["category"] = pd.cut(df_age.cl_age90, bins=bins, labels=names)
+    df_age = df_age.groupby(['reg', "jour", "category"])['hosp', 'rea', 'rad', 'dc'].agg(sum).reset_index().rename(
+        columns={"hosp": "reg_hosp", "rea": "reg_rea", "rad": "reg_rad", "dc": "reg_dc"})
+    return df_age
+
+
+def get_pv_catego(filelog):
+    logements = pd.read_csv(filelog, sep=";")
+    cols = ["codeReg", "codeDep"] + [col for col in logements.columns if
+                                     ("popMonopAppart" in col) | ("popMen4pAppart" in col)]
+    df = logements.loc[:, cols]
+    df["1P-2P"] = df["popMonopAppart12p"] + df["popMen4pAppart12p"]
+    df["3P-4P"] = df["popMonopAppart34p"] + df["popMen4pAppart34p"]
+    df[">5P"] = df["popMonopAppart5pP"] + df["popMen4pAppart5pP"]
+    df["totPopulation"] = df["popMonopAppart"] + df["popMen4pAppart"]
+    df["1P-2P"] = df["1P-2P"] / df["totPopulation"]
+    df["3P-4P"] = df["3P-4P"] / df["totPopulation"]
+    df[">5P"] = df[">5P"] / df["totPopulation"]
+    df = pd.melt(df.query("codeReg not in ['FRA', 'DOM', 'MET'] "), id_vars=['codeReg', 'codeDep'],
+                 value_vars=['1P-2P', '3P-4P', '>5P'], value_name="pop", var_name="piece")
+    return df
+
+
 def preprocess_data():
     dfs = []
     root_path = "https://storage.googleapis.com/coviral_bucket"
@@ -112,41 +174,23 @@ def preprocess_data():
         dfs.append(pd.read_csv(sources.format(f)))
     # df_covid = pd.concat(dfs, axis=1)
 
+    all_data = dfs[0][
+        ["dpt", "dpt_pop_0_19", "dpt_pop_20_39", "dpt_pop_40_59", "dpt_pop_60_74", "dpt_pop_75_plus", "code_region",
+         "latitude", "longitude", "dpt_pop", "reg_pop", "Superficie", "jour",
+         "sexe", "hosp", "hosp_day", "rea", "rea_day", "rad", "rad_day", "dc", "dc_day"]]
+
+    df_with_ts = get_feature_series(all_data,"2020-04-23")
+
     cat_age_file = root_path+"/donnees_hospitalieres/donnees-hospitalieres-classe-age-covid19-2020-04-23-19h00.csv"
     v_bins = [0, 19, 39, 59, 79, 99]
     v_names = ['[9-19[', '[19-39[', '[39-59[', '[59-79[', '>79']
 
-    def get_category_ages(cat_file, bins=v_bins, names=v_names):
-        df_age = pd.read_csv(cat_file, sep=";")
-        df_age = df_age.query('cl_age90 != 0')
-        df_age["category"] = pd.cut(df_age.cl_age90, bins=bins, labels=names)
-        df_age = df_age.groupby(['reg', "jour", "category"])['hosp', 'rea', 'rad', 'dc'].agg(sum).reset_index().rename(
-            columns={"hosp": "reg_hosp", "rea": "reg_rea", "rad": "reg_rad", "dc": "reg_dc"})
-        return df_age
-
     cat_ages = get_category_ages(cat_age_file)
-    # cat_ages.to_csv("data_covid/ages.csv", index=False)
 
     df_with_ages = pd.merge(dfs[0].query("sexe != 'All'"), cat_ages, left_on=["code_region", "jour"],
                             right_on=["reg", "jour"], how="inner")
 
     filelog = root_path+"/INSEE_conditions_menages/data_confinement_logements.csv"
-
-    def get_pv_catego(filelog):
-        logements = pd.read_csv(filelog, sep=";")
-        cols = ["codeReg", "codeDep"] + [col for col in logements.columns if
-                                         ("popMonopAppart" in col) | ("popMen4pAppart" in col)]
-        df = logements.loc[:, cols]
-        df["1P-2P"] = df["popMonopAppart12p"] + df["popMen4pAppart12p"]
-        df["3P-4P"] = df["popMonopAppart34p"] + df["popMen4pAppart34p"]
-        df[">5P"] = df["popMonopAppart5pP"] + df["popMen4pAppart5pP"]
-        df["totPopulation"] = df["popMonopAppart"] + df["popMen4pAppart"]
-        df["1P-2P"] = df["1P-2P"] / df["totPopulation"]
-        df["3P-4P"] = df["3P-4P"] / df["totPopulation"]
-        df[">5P"] = df[">5P"] / df["totPopulation"]
-        df = pd.melt(df.query("codeReg not in ['FRA', 'DOM', 'MET'] "), id_vars=['codeReg', 'codeDep'],
-                     value_vars=['1P-2P', '3P-4P', '>5P'], value_name="pop", var_name="piece")
-        return df
 
     pv_cat = get_pv_catego(filelog)
 
