@@ -19,13 +19,13 @@ Git repository for the data part of the **cOViral**'s projet for EUvsCovid Hacka
 |_ model.pkl
 ```
 
-- ```[requirements.txt](requirements.txt)``` Contains the list of all packages that need to be installed to make the code work well. <br/>
-- ```[main.py](main.py)``` Contains the functions deployed as google cloud functions <br/>
-- ```[train.py](train.py)``` Tools to retrain model to score risks of second wave of virus propagation <br/>
-- ```[config.yaml](config.yaml)``` Configuration file <br/>
-- ```[donnees-hospitalieres-covid19](donnees-hospitalieres-covid19.csv)``` Data on April 23rd, 2020 <br/>
-- ```[mapping_region_dep](mapping_region_dep.csv)``` Mapping file between french regions and departments <br/>
-- ```[model.pkl](model.pkl)``` Resulting model for predicting normal number of hospitalisation delta for a given a department <br/>
+- [```requirements.txt```](requirements.txt) Contains the list of all packages that need to be installed to make the code work well. <br/>
+- [```main.py```](main.py) Contains the functions deployed as google cloud functions <br/>
+- [```train.py```](train.py) Tools to retrain model to score risks of second wave of virus propagation <br/>
+- [```config.yaml```](config.yaml) Configuration file <br/>
+- [```donnees-hospitalieres-covid19```](donnees-hospitalieres-covid19.csv) Data on April 23rd, 2020 <br/>
+- [```mapping_region_dep```](mapping_region_dep.csv) Mapping file between french regions and departments <br/>
+- [```model.pkl```](model.pkl) Resulting model for predicting normal number of hospitalisation delta for a given a department <br/>
 
 
 ## Installation <a name="installation"></a>
