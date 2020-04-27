@@ -140,13 +140,19 @@ def get_feature_series(all_data, dateOfRun):
     return (all_data)
 
 
-def get_category_ages(cat_file, bins=v_bins, names=v_names):
+
+def get_category_ages(cat_file,  dateOfRun,  bins=v_bins, names=v_names):
+    
+    date = datetime.strptime(dateOfRun, "%Y-%m-%d")
+    dateOfRun_minus_one = date - timedelta(days=1)
+
     df_age = pd.read_csv(cat_file, sep=";")
     df_age = df_age.query('cl_age90 != 0')
-    df_age["category"] = pd.cut(df_age.cl_age90, bins=bins, labels=names)
-    df_age = df_age.groupby(['reg', "jour", "category"])['hosp', 'rea', 'rad', 'dc'].agg(sum).reset_index().rename(
-        columns={"hosp": "reg_hosp", "rea": "reg_rea", "rad": "reg_rad", "dc": "reg_dc"})
-    return df_age
+    df_age["category"] = pd.cut(df_age.cl_age90,bins=bins,labels=names)
+    df_age = df_age.groupby(['reg', "jour", "category"])['hosp', 'rea', 'rad', 'dc'].agg(sum).reset_index().rename(columns={ "hosp": "reg_hosp", "rea": "reg_rea", "rad":"reg_rad", "dc": "reg_dc"})
+    df_age["jour"] = pd.to_datetime(df_age['jour'], format = '%Y-%m-%d')
+    
+    return(df_age[df_age["jour"] == dateOfRun_minus_one].drop(["jour"], axis=1))
 
 
 def get_pv_catego(filelog):
@@ -179,13 +185,13 @@ def preprocess_data():
          "latitude", "longitude", "dpt_pop", "reg_pop", "Superficie", "jour",
          "sexe", "hosp", "hosp_day", "rea", "rea_day", "rad", "rad_day", "dc", "dc_day"]]
 
-    df_with_ts = get_feature_series(all_data,"2020-04-23")
+    df_with_ts = get_feature_series(all_data,"2020-04-24")
 
     cat_age_file = root_path+"/donnees_hospitalieres/donnees-hospitalieres-classe-age-covid19-2020-04-23-19h00.csv"
     v_bins = [0, 19, 39, 59, 79, 99]
     v_names = ['[9-19[', '[19-39[', '[39-59[', '[59-79[', '>79']
 
-    cat_ages = get_category_ages(cat_age_file)
+    cat_ages = get_category_ages(cat_age_file, "2020-04-24")
 
     df_with_ages = pd.merge(dfs[0].query("sexe != 'All'"), cat_ages, left_on=["code_region", "jour"],
                             right_on=["reg", "jour"], how="inner")
@@ -197,4 +203,14 @@ def preprocess_data():
     df_with_ages = pd.merge(df_with_ages, pv_cat, left_on=["dpt"], right_on=["codeDep"], how="inner")
     return df_with_ages
 
+def prepare_to_predict(df, age, dep, sexe, pav, region):
+    t = df.set_index(["dpt", "jour", "sexe","code_region", "category", "piece"]).drop(["codeDep", "reg", "codeReg", "id"], axis=1).fillna(0)
+    df = t.reset_index()
+    df_dummies = pd.get_dummies(df, columns=["sexe","code_region", "category", "piece", "dpt", "code_region"])
+    df = pd.merge(df, df_dummies)
+    df[(df["sexe"] == sexe) & (df["category"] == age) & (df["piece"] == pav) & (df["code_region"] == region) & (df["dpt"] == dep)]
+    return(df.set_index(["sexe", "code_region", "category", "piece", "dpt", "code_region"]))
 
+def predict(model, test):
+    score = model.predict(test, iteration=model.best_iteration)
+    return(score)

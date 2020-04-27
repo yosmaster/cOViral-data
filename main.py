@@ -17,6 +17,8 @@ print("Let's start")
 last_date = datetime.now().date()
 print("loading model")
 model = pickle.load(open(config["model"], 'rb'))
+with open('model.pkl', 'rb') as fin:
+    modelCovid = pickle.load(fin)
 print("getting data")
 df = train.get_data()
 print("init Ok")
@@ -77,7 +79,14 @@ def get_individual_score(request):
     except Exception as e:
         print(e)
 
-    resp = make_response(jsonify({"score": 80}))
+    try:
+        df_to_predict = train.prepare_to_predict(df_with_ages, age, dep, sexe, pav, region)
+        score = train.predict(modelCovid, score)
+        print("Prediction  OK")
+    except Exception as e:
+        print(e)
+
+    resp = make_response(jsonify({"score": score}))
     resp.headers['Access-Control-Allow-Origin'] = '*'
     return resp
 
